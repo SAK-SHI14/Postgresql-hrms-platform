@@ -12,71 +12,83 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         console.log('Auth: Effect mounted');
+        let mounted = true;
 
         // Safety timeout to prevent infinite loading
         const safetyTimeout = setTimeout(() => {
-            setLoading((currentLoading) => {
-                if (currentLoading) {
-                    console.error('Auth check timed out! Forcing application load.');
-                    alert('Auth check timed out! The backend might be unreachable. Forcing load...');
-                    return false;
-                }
-                return currentLoading;
-            });
+            if (mounted) {
+                setLoading((currentLoading) => {
+                    if (currentLoading) {
+                        console.warn('Auth check timed out! Forcing application load.');
+                        return false;
+                    }
+                    return currentLoading;
+                });
+            }
         }, 5000);
 
-        const getSession = async () => {
-            console.log('Auth: Starting getSession...');
+        const initAuth = async () => {
+            console.log('Auth: Initializing...');
             try {
-                const { data: { session }, error } = await supabase.auth.getSession()
-                if (error) throw error
+                // Check current session first
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error) throw error;
 
-                console.log('Auth: Session retrieved', session ? 'User found' : 'No user');
-
-                if (session?.user) {
-                    const userRole = await fetchUserRole(session.user.email)
-                    setUser({ ...session.user, role: userRole })
-                    setRole(userRole)
-                } else {
-                    setUser(null)
-                    setRole(null)
+                if (mounted) {
+                    if (session?.user) {
+                        console.log('Auth: Initial session found for', session.user.email);
+                        const userRole = await fetchUserRole(session.user.email);
+                        if (mounted) {
+                            setUser({ ...session.user, role: userRole });
+                            setRole(userRole);
+                        }
+                    } else {
+                        console.log('Auth: No initial session');
+                        // Don't explicitly set null here if we want to rely on onAuthStateChange, 
+                        // but usually it's safe to assume null if getSession is null.
+                    }
                 }
-            } catch (error) {
-                console.error('Auth Init Error:', error)
-                // alert('Auth Init Error: ' + error.message) 
+            } catch (e) {
+                console.error('Auth: Init error', e);
             } finally {
-                console.log('Auth: Finished getSession, turning off loading');
-                setLoading(false)
-                clearTimeout(safetyTimeout); // Clear timeout if successful
+                if (mounted) {
+                    setLoading(false);
+                    clearTimeout(safetyTimeout);
+                }
             }
-        }
-
-        getSession()
+        };
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-            console.log('Auth: Auth state changed', _event);
-            if (session?.user) {
-                // Prepare user immediately to avoid UI flicker, then fetch role
-                setUser(session.user)
-                // Only set loading if we don't have a role yet to prevent flickering
-                // But normally we want to ensure role is up to date.
-                // setLoading(true) 
-                // Commenting out setLoading(true) in auth change to see if it fixes the hang
-                // or we manage it more carefully.
+            console.log('Auth: State Changed:', _event);
+            if (!mounted) return;
 
-                const userRole = await fetchUserRole(session.user.email)
-                setUser({ ...session.user, role: userRole })
-                setRole(userRole)
+            if (session?.user) {
+                // Set user immediately
+                setUser(prev => {
+                    // If we already have this user, don't trigger unnecessary updates
+                    if (prev?.id === session.user.id) return prev;
+                    return session.user;
+                });
+
+                // Fetch role in background
+                const userRole = await fetchUserRole(session.user.email);
+                if (mounted) {
+                    setUser(prev => ({ ...session.user, role: userRole }));
+                    setRole(userRole);
+                }
             } else {
-                setUser(null)
-                setRole(null)
+                setUser(null);
+                setRole(null);
             }
-            setLoading(false)
-        })
+            setLoading(false);
+        });
+
+        initAuth();
 
         return () => {
-            subscription.unsubscribe()
-            clearTimeout(safetyTimeout)
+            mounted = false;
+            subscription.unsubscribe();
+            clearTimeout(safetyTimeout);
         }
     }, [])
 
