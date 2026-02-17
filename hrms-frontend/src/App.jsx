@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import MainLayout from './components/layout/MainLayout'
 import Dashboard from './pages/Dashboard'
@@ -12,6 +12,14 @@ import './index.css'
 // Protected Route Component
 const RequireAuth = ({ children, allowedRoles }) => {
   const { user, role, loading } = useAuth()
+  const location = useLocation() // Import useLocation via 'react-router-dom' if not already? It's imported in file? No, need to check imports.
+
+  console.log('RequireAuth Check:', {
+    path: window.location.pathname,
+    loading,
+    user: user ? user.email : 'null',
+    role
+  })
 
   if (loading) {
     return (
@@ -22,12 +30,12 @@ const RequireAuth = ({ children, allowedRoles }) => {
   }
 
   if (!user) {
+    console.log('RequireAuth: No user, redirecting to login')
     return <Navigate to="/login" replace />
   }
 
   if (allowedRoles && role && !allowedRoles.includes(role)) {
-    // Redirect to dashboard if authorized but not for this specific route
-    // Or show an unauthorized page
+    console.log('RequireAuth: Role not allowed', role)
     return <Navigate to="/" replace />
   }
 
